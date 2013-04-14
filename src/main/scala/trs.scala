@@ -42,6 +42,8 @@ package object trs {
 
   def v[A](_var: A): Term[A] = Return[Term0, A](_var)
 
+  def vars[A](term: Term[A]) = term.toList
+
   implicit def termShow[A]: Show[Term[A]] = new Show[Term[A]] {
     override def shows(t: Term[A]): String = t.resume match {
       case -\/(s) => s.shows
