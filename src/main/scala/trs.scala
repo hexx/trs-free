@@ -40,17 +40,17 @@ package object trs {
     }
   }
 
-  type Term[+A] = Free[Term0, A]
-
-  type Subst[+A] = (A, Term[A])
+  type Term[A]  = Free[Term0, A]
+  type Subst[A] = List[(A, Term[A])]
+  type Rule[A]  = (Term[A], Term[A])
 
   def f[A](fun: String, arg: List[Term[A]]): Term[A] = Suspend[Term0, A](Term0(fun, arg))
+  def c[A](const: String)                  : Term[A] = f(const, List())
+  def v[A](_var: A)                        : Term[A] = Return[Term0, A](_var)
 
-  def c[A](const: String): Term[A] = f(const, List())
-
-  def v[A](_var: A): Term[A] = Return[Term0, A](_var)
-
-  def parse(s: String): Option[Term[String]] = Parser.parseToOption(Parser.term, s)
+  def parseTerm(s: String) : Option[Term[String]]       = Parser.parseToOption(Parser.term, s)
+  def parseRule(s: String) : Option[Rule[String]]       = Parser.parseToOption(Parser.rule, s)
+  def parseRules(s: String): Option[List[Rule[String]]] = Parser.parseToOption(Parser.rules, s)
 
   def vars[A](term: Term[A]) = term.toList
 
@@ -66,11 +66,17 @@ package object trs {
 
   def subterms[A](term: Term[A]): List[Term[A]] = term :: properSubterms(term)
 
-  def patmat[A](t1: Term[A], t2: Term[A]): Option[List[Subst[A]]] = (t1.resume, t2.resume) match {
+  def patmat[A](t1: Term[A], t2: Term[A]): Option[Subst[A]] = (t1.resume, t2.resume) match {
     case (\/-(r) , _      ) => Some(List(r -> t2))
     case (-\/(s1), -\/(s2)) => s1.patmat(s2)(patmat)
     case (_      , _      ) => None
   }
+
+  def applySubst[A](subst: Subst[A], term: Term[A]) = term >>= (a => subst.toMap.get(a) | Return[Term0, A](a))
+
+  def rewriteTop1[A](rule: Rule[A], term: Term[A]) = patmat(rule._1, term) map (applySubst(_, rule._2))
+
+  def rewriteTop[A](rules: List[Rule[A]], term: Term[A]) = rules flatMap (rewriteTop1(_, term))
 
   implicit def termShow[A]: Show[Term[A]] = new Show[Term[A]] {
     override def shows(t: Term[A]): String = t.resume match {
@@ -97,10 +103,13 @@ package object trs {
     val funName = """[a-z]+""".r
     val varName = """[A-Z]+""".r
 
-    def _var:  Parser[Term[String]] = varName ^^ (v(_))
-    def const: Parser[Term[String]] = funName ^^ (c(_))
-    def fun:   Parser[Term[String]] = funName ~ "(" ~ repsep(term, ",") <~ ")" ^^ { case fun0 ~ _ ~ arg => f(fun0, arg) }
-    def term:  Parser[Term[String]] = fun | const | _var
+    def _var:  Parser[Term[String]]       = varName ^^ v
+    def const: Parser[Term[String]]       = funName ^^ c
+    def fun:   Parser[Term[String]]       = funName ~ "(" ~ repsep(term, ",") <~ ")" ^^ { case fun0 ~ _ ~ arg => f(fun0, arg) }
+    def term:  Parser[Term[String]]       = fun | const | _var
+
+    def rule:  Parser[Rule[String]]       = term ~ "->" ~ term ^^ { case lhs ~ _ ~ rhs => (lhs, rhs) }
+    def rules: Parser[List[Rule[String]]] = rep(rule)
 
     def parseToOption[T](p: Parser[T], s: String): Option[T] = parseAll(p, s) match {
       case Success(r, _)   => Some(r)

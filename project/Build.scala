@@ -26,7 +26,10 @@ object Build extends Build {
         "scalaz._",
         "Scalaz._",
         "com.github.hexx.trs._"
-      ).map("import " + _ + "\n").mkString
+      ).map("import " + _ + "\n").mkString,
+      initialCommands in console += Seq(
+        """val rules = parseRules("add(z, Y) -> Y add(s(X), Y) -> s(add(X, Y)) ").get"""
+      ).mkString("\n")
     ) : _*
   )
 }
