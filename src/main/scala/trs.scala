@@ -60,7 +60,7 @@ package object trs {
   }
 
   def properSubterms[A](term: Term[A]): List[Term[A]] = term.resume match {
-    case -\/(s) => s.toList flatMap subterms
+    case -\/(s) => s.toList >>= subterms
     case \/-(r) => List()
   }
 
@@ -72,11 +72,25 @@ package object trs {
     case (_      , _      ) => None
   }
 
-  def applySubst[A](subst: Subst[A], term: Term[A]) = term >>= (a => subst.toMap.get(a) | Return[Term0, A](a))
+  def applySubst[A](subst: Subst[A], term: Term[A]) = term >>= (a => subst.toMap.get(a) | v(a))
 
   def rewriteTop1[A](rule: Rule[A], term: Term[A]) = patmat(rule._1, term) map (applySubst(_, rule._2))
 
   def rewriteTop[A](rules: List[Rule[A]], term: Term[A]) = rules flatMap (rewriteTop1(_, term))
+
+  def rewriteStep[A](rules: List[Rule[A]], term: Term[A]): List[Term[A]] = rewriteTop(rules, term) ++ (term.resume match {
+    case -\/(s) => s traverse (rewriteStep(rules, _)) map (Suspend(_))
+    case \/-(r) => List()
+  }).filter(_ != term)
+
+  def rewriteToNF[A](rules: List[Rule[A]], term: Term[A]): List[Term[A]] = {
+    val step = rewriteStep(rules, term)
+    if (step.isEmpty) {
+      List(term)
+    } else {
+      step >>= (rewriteToNF(rules, _))
+    }
+  }
 
   implicit def termShow[A]: Show[Term[A]] = new Show[Term[A]] {
     override def shows(t: Term[A]): String = t.resume match {
