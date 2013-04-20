@@ -27,6 +27,12 @@ package object trs {
       }
     }
 
+    implicit def term0Equal[A: Equal]: Equal[Term0[A]] = new Equal[Term0[A]] {
+      def equal(t1: Term0[A], t2: Term0[A]) = (t1, t2) match {
+        case (Term0(fun1, arg1), Term0(fun2, arg2)) => fun1 == fun2 && arg1 === arg2
+      }
+    }
+
     implicit val term0Foldable: Foldable[Term0] = new Foldable[Term0] with Foldable.FromFoldMap[Term0] {
       def foldMap[A, B](t: Term0[A])(f: A => B)(implicit F: Monoid[B]): B = t match {
         case Term0(fun, arg) => arg foldMap f
@@ -69,7 +75,7 @@ package object trs {
   def patmat[A](t1: Term[A], t2: Term[A]): Option[Subst[A]] = (t1.resume, t2.resume) match {
     case (\/-(r) , _      ) => Some(List(r -> t2))
     case (-\/(s1), -\/(s2)) => s1.patmat(s2)(patmat)
-    case (_      , _      ) => None
+    case _                  => None
   }
 
   def applySubst[A](subst: Subst[A], term: Term[A]) = term >>= (a => subst.toMap.get(a) | v(a))
@@ -78,12 +84,12 @@ package object trs {
 
   def rewriteTop[A](rules: List[Rule[A]], term: Term[A]) = rules flatMap (rewriteTop1(_, term))
 
-  def rewriteStep[A](rules: List[Rule[A]], term: Term[A]): List[Term[A]] = rewriteTop(rules, term) ++ (term.resume match {
+  def rewriteStep[A: Equal](rules: List[Rule[A]], term: Term[A]): List[Term[A]] = rewriteTop(rules, term) ++ (term.resume match {
     case -\/(s) => s traverse (rewriteStep(rules, _)) map (Suspend(_))
     case \/-(r) => List()
-  }).filter(_ != term)
+  }).filter(_ /== term)
 
-  def rewriteToNF[A](rules: List[Rule[A]], term: Term[A]): List[Term[A]] = {
+  def rewriteToNF[A: Equal](rules: List[Rule[A]], term: Term[A]): List[Term[A]] = {
     val step = rewriteStep(rules, term)
     if (step.isEmpty) {
       List(term)
@@ -92,10 +98,18 @@ package object trs {
     }
   }
 
-  implicit def termShow[A]: Show[Term[A]] = new Show[Term[A]] {
+  implicit def termShow[A: Show]: Show[Term[A]] = new Show[Term[A]] {
     override def shows(t: Term[A]): String = t.resume match {
       case -\/(s) => s.shows
-      case \/-(r) => s"$r"
+      case \/-(r) => r.shows
+    }
+  }
+
+  implicit def termEqual[A: Equal]: Equal[Term[A]] = new Equal[Term[A]] {
+    def equal(t1: Term[A], t2: Term[A]) = (t1.resume, t2.resume) match {
+      case (\/-(r1), \/-(r2)) => r1 === r2
+      case (-\/(s1), -\/(s2)) => s1 === s2
+      case _                  => false
     }
   }
 
