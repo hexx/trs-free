@@ -8,7 +8,7 @@ object Build extends Build {
       "-deprecation",
       "-feature",
       "-unchecked",
-      "-language:higherKinds"
+      "-language:_"
     )
   )
 
@@ -20,16 +20,26 @@ object Build extends Build {
       name := "trs",
       version := "0.0.1",
       libraryDependencies ++= Seq(
-        "org.scalaz" %% "scalaz-core" % "7.0.0-RC2"
+        "org.scalaz" %% "scalaz-core" % "7.0.0"
       ),
       initialCommands in console += Seq(
         "scalaz._",
         "Scalaz._",
         "com.github.hexx.trs._"
-      ).map("import " + _ + "\n").mkString,
-      initialCommands in console += Seq(
-        """val rules = parseRules("add(z, Y) -> Y add(s(X), Y) -> s(add(X, Y)) ").get"""
-      ).mkString("\n")
+      ).map("import " + _ + "\n").mkString
     ) : _*
   )
+
+  lazy val trsExample = Project(
+    id = "trs-example",
+    base = file("example")
+  ).settings(
+    baseSettings  ++ seq(
+      initialCommands in console += Seq(
+        "scalaz._",
+        "Scalaz._",
+        "com.github.hexx.trs._"
+      ).map("import " + _ + "\n").mkString
+    ) : _*
+  ).dependsOn(trs)
 }
