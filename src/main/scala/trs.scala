@@ -84,10 +84,13 @@ package object trs {
 
   def rewriteTop[A](rules: List[Rule[A]], term: Term[A]) = rules flatMap (rewriteTop1(_, term))
 
-  def rewriteStep[A: Equal](rules: List[Rule[A]], term: Term[A]): List[Term[A]] = rewriteTop(rules, term) ++ (term.resume match {
-    case -\/(s) => s traverse (rewriteStep(rules, _)) map (Suspend(_))
-    case \/-(r) => List()
-  }).filter(_ /== term)
+  def rewriteStep[A: Equal](rules: List[Rule[A]], term: Term[A]): List[Term[A]] = {
+    def rewriteStep1[A](rules: List[Rule[A]], term: Term[A]): List[Term[A]] = rewriteTop(rules, term) ++ (term.resume match {
+      case -\/(s) => s traverse (rewriteStep1(rules, _)) map (Suspend(_))
+      case \/-(r) => List()
+    })
+    rewriteStep1(rules, term).filter(_ /== term)
+  }
 
   def rewriteToNF[A: Equal](rules: List[Rule[A]], term: Term[A]): List[Term[A]] = {
     val step = rewriteStep(rules, term)
