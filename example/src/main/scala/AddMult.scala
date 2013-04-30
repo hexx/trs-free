@@ -1,4 +1,4 @@
-import com.github.hexx.trs._
+import com.github.hexx.trs2._
 
 import scalaz._, Scalaz._
 

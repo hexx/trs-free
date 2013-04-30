@@ -38,7 +38,8 @@ object Build extends Build {
       initialCommands in console += Seq(
         "scalaz._",
         "Scalaz._",
-        "com.github.hexx.trs._"
+        "com.github.hexx.trs2._",
+        "Example._"
       ).map("import " + _ + "\n").mkString
     ) : _*
   ).dependsOn(trs)

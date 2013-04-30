@@ -92,12 +92,22 @@ package object trs {
     rewriteStep1(rules, term).filter(_ /== term)
   }
 
+  def uniq[A: Equal](terms: List[Term[A]]): List[Term[A]] = {
+    terms.foldLeft(List(): List[Term[A]]) { (l, t) =>
+      if (l.find(_ === t).isEmpty) {
+        t :: l
+      } else {
+        l
+      }
+    }
+  }
+
   def rewriteToNF[A: Equal](rules: List[Rule[A]], term: Term[A]): List[Term[A]] = {
     val step = rewriteStep(rules, term)
     if (step.isEmpty) {
       List(term)
     } else {
-      step >>= (rewriteToNF(rules, _))
+      uniq(step >>= (rewriteToNF(rules, _)))
     }
   }
 
