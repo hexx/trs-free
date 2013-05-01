@@ -62,10 +62,15 @@ package object trs2 {
       }
     }
 
-    // specific instance for Term[Term0, A] for avoiding diverging implicit expansion
+    // specific instance for Term[Term0, A] to avoiding diverging implicit expansion
     implicit def term0Show[A: Show]: Show[Term0[Term[Term0, A]]] = new Show[Term0[Term[Term0, A]]] {
       override def shows(t: Term0[Term[Term0, A]]): String = t match {
-        case Term0(fun, arg) => s"""$fun(${arg.map(_.shows).mkString(", ")})"""
+        case Term0(fun, arg) =>
+          if (arg.isEmpty) {
+            s"$fun"
+          } else {
+            s"""$fun(${arg.map(_.shows).mkString(", ")})"""
+          }
       }
     }
 
@@ -172,8 +177,15 @@ package object trs2 {
       }
     }
 
-  object Parser extends RegexParsers {
-    val funName = """[a-z]+""".r
+  trait OptionParsers extends RegexParsers {
+    def parseToOption[T](p: Parser[T], s: String): Option[T] = parseAll(p, s) match {
+      case Success(r, _)   => Some(r)
+      case NoSuccess(_, _) => None
+    }
+  }
+
+  object Parser extends OptionParsers {
+    val funName = """[0-9a-z]+""".r
     val varName = """[A-Z]+""".r
 
     def _var:  Parser[Term[Term0, String]]       = varName ^^ v
@@ -183,10 +195,5 @@ package object trs2 {
 
     def rule:  Parser[Rule[Term0, String]]       = term ~ "->" ~ term ^^ { case lhs ~ _ ~ rhs => (lhs, rhs) }
     def rules: Parser[List[Rule[Term0, String]]] = rep(rule)
-
-    def parseToOption[T](p: Parser[T], s: String): Option[T] = parseAll(p, s) match {
-      case Success(r, _)   => Some(r)
-      case NoSuccess(_, _) => None
-    }
   }
 }

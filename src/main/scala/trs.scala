@@ -23,7 +23,12 @@ package object trs {
 
     implicit def term0Shows[A: Show]: Show[Term0[A]] = new Show[Term0[A]] {
       override def shows(t: Term0[A]): String = t match {
-        case Term0(fun, arg) => s"""$fun(${arg.map(_.shows).mkString(", ")})"""
+        case Term0(fun, arg) =>
+          if (arg.isEmpty) {
+            s"$fun"
+          } else {
+            s"""$fun(${arg.map(_.shows).mkString(", ")})"""
+          }
       }
     }
 
@@ -141,7 +146,7 @@ package object trs {
   }
 
   object Parser extends RegexParsers {
-    val funName = """[a-z]+""".r
+    val funName = """[0-9a-z]+""".r
     val varName = """[A-Z]+""".r
 
     def _var:  Parser[Term[String]]       = varName ^^ v
