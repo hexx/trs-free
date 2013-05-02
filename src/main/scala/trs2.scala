@@ -81,9 +81,10 @@ package object trs2 {
     }
   }
 
-  type Term[F[+_], +A]  = Free[F, A]
+  type Term[F[+_], +A] = Free[F, A]
   type Subst[F[+_], A] = List[(A, Term[F, A])]
   type Rule[F[+_], A]  = (Term[F, A], Term[F, A])
+  type Position = List[Int]
 
   def f[A](fun: String, arg: List[Term[Term0, A]]): Term[Term0, A] = Suspend[Term0, A](Term0(fun, arg))
   def c[A](const: String)                         : Term[Term0, A] = f(const, List())
@@ -144,6 +145,19 @@ package object trs2 {
     } else {
       uniq((step >>= (rewriteToNF(rules, _))))
     }
+  }
+
+  def foldTerm[F[+_]: Functor, A, B](pure: A => B, impure: F[B] => B, t: Term[F, A]): B = t.resume match {
+    case -\/(s) => impure(s map (foldTerm(pure, impure, _)))
+    case \/-(r) => pure(r)
+  }
+
+  def positions[F[+_]: Functor: Foldable, A](t: Term[F, A]): List[Position] = {
+    def impure(fb: F[List[Position]]) = {
+      val pss = fb.toList
+      List() :: pss.fzipWith(1.to(pss.length).toList)((ps, i) => ps map (i :: _)).flatten
+    }
+    foldTerm((a: A) => List(), impure, t)
   }
 
   implicit def termShow[F[+_], A: Show](implicit F: Show[F[Term[F, A]]]): Show[Term[F, A]] = new Show[Term[F, A]] {
