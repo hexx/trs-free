@@ -16,13 +16,7 @@ package object trs2 {
       pzipWith(fa, fb)(f).map(_.sequence).flatten.map(_.flatten)
   }
 
-  case class Term0[+A](fun: String, arg: List[A]) {
-    def patmat[B, C](t1: Term0[B])(f: (A, B) => Option[List[C]]): Option[List[C]] = t1 match {
-      case Term0(fun1, arg1) if fun == fun1 && arg.length == arg1.length =>
-        implicitly[Zip[List]].zipWith(arg, arg1)(f).sequence map (_.flatten)
-      case _ => None
-    }
-  }
+  case class Term0[+A](fun: String, arg: List[A])
 
   object Term0 {
     implicit val term0Functor: Functor[Term0] = new Functor[Term0] {
@@ -158,6 +152,29 @@ package object trs2 {
       List() :: pss.fzipWith(1.to(pss.length).toList)((ps, i) => ps map (i :: _)).flatten
     }
     foldTerm((a: A) => List(), impure, t)
+  }
+
+  def subtermAt[F[+_]: Foldable, A](pos: Position, t: Term[F, A]): Option[Term[F, A]] = (pos, t.resume) match {
+    case (p :: ps, -\/(s)) =>
+      val ts = s.toList
+      if (p > 0 && p <= ts.length) {
+        subtermAt(ps, ts(p - 1))
+      } else {
+        None
+      }
+    case (List(), _) => Some(t)
+    case _ => None
+  }
+
+  def updateAt[F[+_]: Traverse, A](pos: Position, f: Term[F, A] => Term[F, A], t: Term[F, A]): Term[F, A] = (pos, t.resume) match {
+    case (p :: ps, -\/(s)) =>
+      if (p > 0 && p <= s.toList.length) {
+        Suspend(s map (updateAt(ps, f, _)))
+      } else {
+        t
+      }
+    case (List(), _) => f(t)
+    case _ => t
   }
 
   implicit def termShow[F[+_], A: Show](implicit F: Show[F[Term[F, A]]]): Show[Term[F, A]] = new Show[Term[F, A]] {
