@@ -1,4 +1,4 @@
-import com.github.hexx.trs2._
+import com.github.hexx.trs._
 
 import scala.util.parsing.combinator.RegexParsers
 
@@ -47,7 +47,7 @@ object Example {
     def nat: Parser[Int]  =  succ | zero
 
     def nil: Parser[List[Int]]  = "nil" ^^ (_ => Nil)
-    def cons: Parser[List[Int]] = "cons(" ~> nat ~ "," ~ list <~ ")" ^^ { case x ~ _ ~ xs => (x :: xs) }
+    def cons: Parser[List[Int]] = "cons(" ~> nat ~ "," ~ list <~ ")" ^^ { case x ~ _ ~ xs => x :: xs }
     def list                    = cons | nil
   }
 

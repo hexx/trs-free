@@ -6,13 +6,17 @@ import scalaz._, Scalaz._
 import Free._
 
 package object trs {
-  case class Term0[+A](fun: String, arg: List[A]) {
-    def patmat[B, C](t1: Term0[B])(f: (A, B) => Option[List[C]]): Option[List[C]] = t1 match {
-      case Term0(fun1, arg1) if fun == fun1 && arg.length == arg1.length =>
-        implicitly[Zip[List]].zipWith(arg, arg1)(f).sequence map (_.flatten)
-      case _ => None
-    }
+  trait Patmat[F[_]] {
+    def pzip[A, B](fa: F[A], fb: F[B]): Option[List[(A, B)]]
+
+    def pzipWith[A, B, C](fa: F[A], fb: F[B])(f: (A, B) => C): Option[List[C]] =
+      pzip(fa, fb) map (_ map { case (a, b) => f(a, b) })
+
+    def patmat[A, B, C](fa: F[A], fb: F[B])(f: (A, B) => Option[List[C]]) =
+      pzipWith(fa, fb)(f).map(_.sequence).flatten.map(_.flatten)
   }
+
+  case class Term0[+A](fun: String, arg: List[A])
 
   object Term0 {
     implicit val term0Functor: Functor[Term0] = new Functor[Term0] {
@@ -21,22 +25,17 @@ package object trs {
       }
     }
 
-    implicit def term0Shows[A: Show]: Show[Term0[A]] = new Show[Term0[A]] {
-      override def shows(t: Term0[A]): String = t match {
-        case Term0(fun, arg) =>
-          if (arg.isEmpty) {
-            s"$fun"
-          } else {
-            s"""$fun(${arg.map(_.shows).mkString(", ")})"""
-          }
-      }
-    }
+    // implicit def term0Shows[A: Show]: Show[Term0[A]] = new Show[Term0[A]] {
+    //   override def shows(t: Term0[A]): String = t match {
+    //     case Term0(fun, arg) => s"""$fun(${arg.map(_.shows).mkString(", ")})"""
+    //   }
+    // }
 
-    implicit def term0Equal[A: Equal]: Equal[Term0[A]] = new Equal[Term0[A]] {
-      def equal(t1: Term0[A], t2: Term0[A]) = (t1, t2) match {
-        case (Term0(fun1, arg1), Term0(fun2, arg2)) => fun1 == fun2 && arg1 === arg2
-      }
-    }
+    // implicit def term0Equal[A: Equal]: Equal[Term0[A]] = new Equal[Term0[A]] {
+    //   def equal(t1: Term0[A], t2: Term0[A]) = (t1, t2) match {
+    //     case (Term0(fun1, arg1), Term0(fun2, arg2)) => fun1 == fun2 && arg1 === arg2
+    //   }
+    // }
 
     implicit val term0Foldable: Foldable[Term0] = new Foldable[Term0] with Foldable.FromFoldMap[Term0] {
       def foldMap[A, B](t: Term0[A])(f: A => B)(implicit F: Monoid[B]): B = t match {
@@ -49,56 +48,82 @@ package object trs {
         case Term0(fun, arg) => (arg traverse f) map (Term0(fun, _))
       }
     }
+
+    implicit val term0Patmat: Patmat[Term0] = new Patmat[Term0] {
+      def pzip[A, B](t1: Term0[A], t2: Term0[B]): Option[List[(A, B)]] = (t1, t2) match {
+        case (Term0(fun1, arg1), Term0(fun2, arg2)) if fun1 == fun2 && arg1.length == arg2.length => Some(arg1 zip arg2)
+        case _ => None
+      }
+    }
+
+    // specific instance for Term[Term0, A] to avoiding diverging implicit expansion
+    implicit def term0Show[A: Show]: Show[Term0[Term[Term0, A]]] = new Show[Term0[Term[Term0, A]]] {
+      override def shows(t: Term0[Term[Term0, A]]): String = t match {
+        case Term0(fun, arg) =>
+          if (arg.isEmpty) {
+            s"$fun"
+          } else {
+            s"""$fun(${arg.map(_.shows).mkString(", ")})"""
+          }
+      }
+    }
+
+    implicit def term0Equal[A: Equal]: Equal[Term0[Term[Term0, A]]] = new Equal[Term0[Term[Term0, A]]] {
+      def equal(t1: Term0[Term[Term0, A]], t2: Term0[Term[Term0, A]]) = (t1, t2) match {
+        case (Term0(fun1, arg1), Term0(fun2, arg2)) => fun1 == fun2 && arg1 === arg2
+      }
+    }
   }
 
-  type Term[A]  = Free[Term0, A]
-  type Subst[A] = List[(A, Term[A])]
-  type Rule[A]  = (Term[A], Term[A])
+  type Term[F[+_], +A] = Free[F, A]
+  type Subst[F[+_], A] = List[(A, Term[F, A])]
+  type Rule[F[+_], A]  = (Term[F, A], Term[F, A])
+  type Position = List[Int]
 
-  def f[A](fun: String, arg: List[Term[A]]): Term[A] = Suspend[Term0, A](Term0(fun, arg))
-  def c[A](const: String)                  : Term[A] = f(const, List())
-  def v[A](_var: A)                        : Term[A] = Return[Term0, A](_var)
+  def f[A](fun: String, arg: List[Term[Term0, A]]): Term[Term0, A] = Suspend[Term0, A](Term0(fun, arg))
+  def c[A](const: String)                         : Term[Term0, A] = f(const, List())
+  def v[A](_var: A)                               : Term[Term0, A] = Return[Term0, A](_var)
 
-  def parseTerm(s: String) : Option[Term[String]]       = Parser.parseToOption(Parser.term, s)
-  def parseRule(s: String) : Option[Rule[String]]       = Parser.parseToOption(Parser.rule, s)
-  def parseRules(s: String): Option[List[Rule[String]]] = Parser.parseToOption(Parser.rules, s)
+  def parseTerm(s: String) : Option[Term[Term0, String]]       = Parser.parseToOption(Parser.term, s)
+  def parseRule(s: String) : Option[Rule[Term0, String]]       = Parser.parseToOption(Parser.rule, s)
+  def parseRules(s: String): Option[List[Rule[Term0, String]]] = Parser.parseToOption(Parser.rules, s)
 
-  def vars[A](term: Term[A]) = term.toList
+  def vars[F[+_]: Foldable, A](term: Term[F, A]) = term.toList
 
-  def directSubterms[A](term: Term[A]) = term.resume match {
+  def directSubterms[F[+_]: Foldable, A](term: Term[F, A]) = term.resume match {
     case -\/(s) => s.toList
     case \/-(r) => List()
   }
 
-  def properSubterms[A](term: Term[A]): List[Term[A]] = term.resume match {
-    case -\/(s) => s.toList >>= subterms
+  def properSubterms[F[+_]: Foldable, A](term: Term[F, A]): List[Term[F, A]] = term.resume match {
+    case -\/(s) => s.toList >>= (subterms(_))
     case \/-(r) => List()
   }
 
-  def subterms[A](term: Term[A]): List[Term[A]] = term :: properSubterms(term)
+  def subterms[F[+_]: Foldable, A](term: Term[F, A]): List[Term[F, A]] = term :: properSubterms(term)
 
-  def patmat[A](t1: Term[A], t2: Term[A]): Option[Subst[A]] = (t1.resume, t2.resume) match {
+  def applySubst[F[+_]: Functor, A](subst: Subst[F, A], term: Term[F, A]) = term >>= (a => subst.toMap.get(a) | Return[F, A](a))
+
+  def patmat[F[+_], A](t1: Term[F, A], t2: Term[F, A])(implicit F: Patmat[F]): Option[Subst[F, A]] = (t1.resume, t2.resume) match {
     case (\/-(r) , _      ) => Some(List(r -> t2))
-    case (-\/(s1), -\/(s2)) => s1.patmat(s2)(patmat)
+    case (-\/(s1), -\/(s2)) => F.patmat(s1, s2)(patmat(_, _))
     case _                  => None
   }
 
-  def applySubst[A](subst: Subst[A], term: Term[A]) = term >>= (a => subst.toMap.get(a) | v(a))
+  def rewriteTop1[F[+_]: Functor: Patmat, A](rule: Rule[F, A], term: Term[F, A]) = patmat(rule._1, term) map (applySubst(_, rule._2))
 
-  def rewriteTop1[A](rule: Rule[A], term: Term[A]) = patmat(rule._1, term) map (applySubst(_, rule._2))
+  def rewriteTop[F[+_]: Functor: Patmat, A](rules: List[Rule[F, A]], term: Term[F, A]) = rules flatMap (rewriteTop1(_, term))
 
-  def rewriteTop[A](rules: List[Rule[A]], term: Term[A]) = rules flatMap (rewriteTop1(_, term))
-
-  def rewriteStep[A: Equal](rules: List[Rule[A]], term: Term[A]): List[Term[A]] = {
-    def rewriteStep1[A](rules: List[Rule[A]], term: Term[A]): List[Term[A]] = rewriteTop(rules, term) ++ (term.resume match {
+  def rewriteStep[F[+_]: Traverse: Patmat, A: Equal](rules: List[Rule[F, A]], term: Term[F, A])(implicit F: Equal[F[Term[F, A]]]): List[Term[F, A]] = {
+    def rewriteStep1[A](rules: List[Rule[F, A]], term: Term[F, A]): List[Term[F, A]] = rewriteTop(rules, term) ++ (term.resume match {
       case -\/(s) => s traverse (rewriteStep1(rules, _)) map (Suspend(_))
       case \/-(r) => List()
     })
     rewriteStep1(rules, term).filter(_ /== term)
   }
 
-  def uniq[A: Equal](terms: List[Term[A]]): List[Term[A]] = {
-    terms.foldLeft(List(): List[Term[A]]) { (l, t) =>
+  def uniq[F[+_], A: Equal](terms: List[Term[F, A]])(implicit F: Equal[F[Term[F, A]]]): List[Term[F, A]] = {
+    terms.foldLeft(List(): List[Term[F, A]]) { (l, t) =>
       if (l.find(_ === t).isEmpty) {
         t :: l
       } else {
@@ -107,59 +132,99 @@ package object trs {
     }
   }
 
-  def rewriteToNF[A: Equal](rules: List[Rule[A]], term: Term[A]): List[Term[A]] = {
+  def rewriteToNF[F[+_]: Traverse: Patmat, A: Equal](rules: List[Rule[F, A]], term: Term[F, A])(implicit F: Equal[F[Term[F, A]]]): List[Term[F, A]] = {
     val step = rewriteStep(rules, term)
     if (step.isEmpty) {
       List(term)
     } else {
-      uniq(step >>= (rewriteToNF(rules, _)))
+      uniq((step >>= (rewriteToNF(rules, _))))
     }
   }
 
-  implicit def termShow[A: Show]: Show[Term[A]] = new Show[Term[A]] {
-    override def shows(t: Term[A]): String = t.resume match {
+  def foldTerm[F[+_]: Functor, A, B](pure: A => B, impure: F[B] => B, t: Term[F, A]): B = t.resume match {
+    case -\/(s) => impure(s map (foldTerm(pure, impure, _)))
+    case \/-(r) => pure(r)
+  }
+
+  def positions[F[+_]: Functor: Foldable, A](t: Term[F, A]): List[Position] = {
+    def impure(fb: F[List[Position]]) = {
+      val pss = fb.toList
+      List() :: pss.fzipWith(1.to(pss.length).toList)((ps, i) => ps map (i :: _)).flatten
+    }
+    foldTerm((a: A) => List(), impure, t)
+  }
+
+  def subtermAt[F[+_]: Foldable, A](pos: Position, t: Term[F, A]): Option[Term[F, A]] = (pos, t.resume) match {
+    case (p :: ps, -\/(s)) =>
+      val ts = s.toList
+      if (p > 0 && p <= ts.length) {
+        subtermAt(ps, ts(p - 1))
+      } else {
+        None
+      }
+    case (List(), _) => Some(t)
+    case _ => None
+  }
+
+  def updateAt[F[+_]: Traverse, A](pos: Position, f: Term[F, A] => Term[F, A], t: Term[F, A]): Term[F, A] = (pos, t.resume) match {
+    case (p :: ps, -\/(s)) =>
+      if (p > 0 && p <= s.toList.length) {
+        Suspend(s map (updateAt(ps, f, _)))
+      } else {
+        t
+      }
+    case (List(), _) => f(t)
+    case _ => t
+  }
+
+  implicit def termShow[F[+_], A: Show](implicit F: Show[F[Term[F, A]]]): Show[Term[F, A]] = new Show[Term[F, A]] {
+    override def shows(t: Term[F, A]): String = t.resume match {
       case -\/(s) => s.shows
       case \/-(r) => r.shows
     }
   }
 
-  implicit def termEqual[A: Equal]: Equal[Term[A]] = new Equal[Term[A]] {
-    def equal(t1: Term[A], t2: Term[A]) = (t1.resume, t2.resume) match {
+  implicit def termEqual[F[+_], A: Equal](implicit F: Equal[F[Term[F, A]]]): Equal[Term[F, A]] = new Equal[Term[F, A]] {
+    def equal(t1: Term[F, A], t2: Term[F, A]) = (t1.resume, t2.resume) match {
       case (\/-(r1), \/-(r2)) => r1 === r2
       case (-\/(s1), -\/(s2)) => s1 === s2
       case _                  => false
     }
   }
 
-  implicit val term0Foldable: Foldable[Term] = new Foldable[Term] with Foldable.FromFoldMap[Term] {
-    def foldMap[A, B](t: Term[A])(f: A => B)(implicit F: Monoid[B]): B = t.resume match {
-      case -\/(s) => s foldMap (_ foldMap f)
-      case \/-(r) => f(r)
+  implicit def termFoldable[F[+_]](implicit F: Foldable[F]): Foldable[({type λ[α] = Term[F, α]})#λ] =
+    new Foldable[({type λ[α] = Term[F, α]})#λ] with Foldable.FromFoldMap[({type λ[α] = Term[F, α]})#λ] {
+      def foldMap[A, B](t: Term[F, A])(f: A => B)(implicit G: Monoid[B]): B = t.resume match {
+        case -\/(s) => s foldMap (_ foldMap f)
+        case \/-(r) => f(r)
+      }
     }
-  }
 
-  implicit val termTraverse: Traverse[Term] = new Traverse[Term] {
-    def traverseImpl[F[+_], A, B](t: Term[A])(f: A => F[B])(implicit F: Applicative[F]): F[Term[B]] = t.resume match {
-      case -\/(s) => (s traverse (_ traverse f)) map (Suspend(_))
-      case \/-(r) => f(r) map (Return(_))
+  implicit def termTraverse[F[+_]](implicit F: Traverse[F]): Traverse[({type λ[α] = Term[F, α]})#λ] =
+    new Traverse[({type λ[α] = Term[F, α]})#λ] {
+      def traverseImpl[G[+_], A, B](t: Term[F, A])(f: A => G[B])(implicit G: Applicative[G]): G[Term[F, B]] = t.resume match {
+        case -\/(s) => (s traverse (_ traverse f)) map (Suspend(_))
+        case \/-(r) => f(r) map (Return(_))
+      }
     }
-  }
 
-  object Parser extends RegexParsers {
-    val funName = """[0-9a-z]+""".r
-    val varName = """[A-Z]+""".r
-
-    def _var:  Parser[Term[String]]       = varName ^^ v
-    def const: Parser[Term[String]]       = funName ^^ c
-    def fun:   Parser[Term[String]]       = funName ~ "(" ~ repsep(term, ",") <~ ")" ^^ { case fun0 ~ _ ~ arg => f(fun0, arg) }
-    def term:  Parser[Term[String]]       = fun | const | _var
-
-    def rule:  Parser[Rule[String]]       = term ~ "->" ~ term ^^ { case lhs ~ _ ~ rhs => (lhs, rhs) }
-    def rules: Parser[List[Rule[String]]] = rep(rule)
-
+  trait OptionParsers extends RegexParsers {
     def parseToOption[T](p: Parser[T], s: String): Option[T] = parseAll(p, s) match {
       case Success(r, _)   => Some(r)
       case NoSuccess(_, _) => None
     }
+  }
+
+  object Parser extends OptionParsers {
+    val funName = """[0-9a-z]+""".r
+    val varName = """[A-Z]+""".r
+
+    def _var:  Parser[Term[Term0, String]]       = varName ^^ v
+    def const: Parser[Term[Term0, String]]       = funName ^^ c
+    def fun:   Parser[Term[Term0, String]]       = funName ~ "(" ~ repsep(term, ",") <~ ")" ^^ { case fun0 ~ _ ~ arg => f(fun0, arg) }
+    def term:  Parser[Term[Term0, String]]       = fun | const | _var
+
+    def rule:  Parser[Rule[Term0, String]]       = term ~ "->" ~ term ^^ { case lhs ~ _ ~ rhs => (lhs, rhs) }
+    def rules: Parser[List[Rule[Term0, String]]] = rep(rule)
   }
 }
